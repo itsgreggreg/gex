@@ -18,7 +18,6 @@ defmodule GexConfig do
 end
 
 defmodule Gex do
-  import GexConfig
   # folder to store repo information
   @gex_dir ".gex"
   # system dependent root directory
@@ -27,18 +26,14 @@ defmodule Gex do
   @doc "Initializes an empty repository"
   def init(opts \\ []) do
     unless gex_path do
-      unless opts[:bare], do: File.mkdir @gex_dir
-      if opts[:bare], do: File.write("config", "[core]")
-      # A keyword list that gets converted into a tree
+      unless opts[:bare], do: File.mkdir!(@gex_dir)
+      if opts[:bare], do: File.write!("config", "[core]")
+      # A keyword list that gets converted into a set
       # of directories and files needed to init a gex repo.
       gex_init_tree = [
         HEAD: "ref: refs/heads/master\n",
-        # If `--bare` was passed, write to the Git config indicating
-        # that the repository is bare. If `--bare` was not passed,
-        # write to the Git config saying the repository is not bare.
         config: GexConfig.to_string(%GexConfig{
-                   :core => [ bare: opts[:bare] ]
-                }),
+                   :core => [ bare: opts[:bare] == true ]}),
         objects: [],
         refs: [
           heads: [],
