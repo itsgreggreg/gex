@@ -45,8 +45,9 @@ defmodule Gex do
         ]
       ]
       write_tree_to_gex_dir(gex_init_tree)
+      IO.puts "Initialized empty Gex repository in #{gex_path}"
     else
-      IO.puts "Already in a gex repository."
+      IO.puts "Already in a Gex repository."
     end
   end
 
