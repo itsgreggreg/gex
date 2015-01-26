@@ -5,7 +5,8 @@ defmodule Gex.Mixfile do
     [app: :gex,
      version: "0.0.1",
      elixir: "~> 1.0",
-     deps: deps]
+     deps: deps,
+     escript: [main_module: Gex.CLI]]
   end
 
   # Configuration for the OTP application
