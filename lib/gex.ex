@@ -23,7 +23,7 @@ defmodule GexConfig do
     Gex.assert_in_repo
     file = File.stream!(Path.join(Gex.gex_dir, "config"))
     # We go over ever line, parsing out config sections and key/vals
-     elem((Enum.reduce file, {%GexConfig{}, nil}, fn (line, {config, section}) ->
+     (Enum.reduce file, {%GexConfig{}, nil}, fn (line, {config, section}) ->
       cond do
                 # matches [(sectionName)]
         match = Regex.run(~r/\[([\d\w]+)\]/, line) ->
@@ -36,7 +36,7 @@ defmodule GexConfig do
                   {config, section}
         true  -> {config, section}
       end
-    end), 0) # Here we are returning the config we get back from reduce
+    end) |> elem(0) # Return the config we get back from reduce
   end
 end
 
