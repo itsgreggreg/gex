@@ -1,4 +1,6 @@
 gex
+*.beam
+.gex
 .DS_Store
 /_build
 /deps
