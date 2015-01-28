@@ -21,7 +21,7 @@ defmodule GexConfig do
   # Reads the config file in the gex directory and returns a GexConfig struct
   def load do
     Gex.assert_in_repo
-    file = File.stream!(Path.join(Gex.gex_path, "config"))
+    file = File.stream!(Path.join(Gex.gex_dir, "config"))
     # We go over ever line, parsing out config sections and key/vals
      elem((Enum.reduce file, {%GexConfig{}, nil}, fn (line, {config, section}) ->
       cond do
@@ -48,7 +48,7 @@ defmodule Gex do
 
   @doc "Initializes an empty repository"
   def init(opts \\ []) do
-    unless gex_path do
+    unless gex_dir do
       unless opts[:bare], do: File.mkdir!(@gex_dir)
       if opts[:bare], do: File.write!("config", "[core]")
       # A keyword list that gets converted into a set of
@@ -63,7 +63,7 @@ defmodule Gex do
         ]
       ]
       write_tree_to_gex_dir(gex_init_tree)
-      IO.puts "Initialized empty Gex repository in #{gex_path}"
+      IO.puts "Initialized empty Gex repository in #{gex_dir}"
     else
       IO.puts "Already in a Gex repository."
     end
@@ -73,15 +73,14 @@ defmodule Gex do
   def add(paths) do
     assert_in_repo
     assert_repo_not_bare
-    files_to_add = List.flatten(Enum.map paths, fn(path) ->
-      files_at_path path
-    end)
-    files_to_add
+    files_to_add = Enum.map(paths, &(files_at_path &1))
+      |> List.flatten
+      |> Enum.uniq
   end
 
   # Takes a tree describing directories and files and
   # writes those dirs and files to the gex dir.
-  defp write_tree_to_gex_dir(tree, path \\ gex_path) do
+  defp write_tree_to_gex_dir(tree, path \\ gex_dir) do
     for key <- Keyword.keys(tree) do
       path = Path.join(path, Atom.to_string(key))
       case tree[key] do
@@ -102,28 +101,32 @@ defmodule Gex do
   # or a file named 'config' that contains '[core]'
   # Returns the path if found
   # Returns nil if not found
-  def gex_path(path \\ File.cwd!) do
+  def gex_dir(path \\ File.cwd!) do
     gex_dir     = Path.join(path, @gex_dir)
     config_file = Path.join(path, "config")
     cond do
       File.dir? gex_dir -> gex_dir
       GexConfig.valid_file? config_file -> path
       path == @system_root -> nil
-      true -> path |> Path.dirname |> gex_path
+      true -> path |> Path.dirname |> gex_dir
     end
   end
 
   # Returns the path of the working directory
-  def working_directory_path do
-    Path.expand "../", gex_path
+  def working_dir do
+    Path.expand "../", gex_dir
   end
 
   # Make sure we are only working with files that are
   # relative to our working directory
+  defp files_at_path(""), do: files_at_path(".")
   defp files_at_path("~"<>_ = path), do: files_at_path Path.expand(path)
   defp files_at_path("/"<>_ = path) do
-    case String.contains? path, working_directory_path do
-      true  -> files_at_path(Path.relative_to(path, working_directory_path))
+    case String.contains? path, working_dir do
+      true  -> path
+        |> String.replace(working_dir, "")
+        |> Path.relative
+        |> files_at_path
       false -> [] # no files to add at this path
     end
   end
@@ -145,7 +148,7 @@ defmodule Gex do
 
   # ## Errors
   # Used to halt execution if not in a gex repo
-  def assert_in_repo, do: raise_if(!gex_path, "Not in a gex repo.")
+  def assert_in_repo, do: raise_if(!gex_dir, "Not in a gex repo.")
 
   # Used to halt execution if trying to add files to a bare repo
   def assert_repo_not_bare do
