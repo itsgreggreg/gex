@@ -1,6 +1,7 @@
 defmodule GexConfig do
   defstruct core: []
 
+  # Dumps a GexConfig struct to a string
   def to_string(conf) do
     if core = conf.core do
        "[core]\n" <> for {key, val} <- core, into: "" do
@@ -9,11 +10,34 @@ defmodule GexConfig do
     end
   end
 
+  # Determines if a path is a valid repo file
   def valid_file?(path) do
     case File.read(path) do
       {:ok, contents} -> Regex.match?(~r/\[core\]/, contents)
-      _               -> false
+      {:error, _}     -> false
     end
+  end
+
+  # Reads the config file in the gex directory and returns a GexConfig struct
+  def load do
+    Gex.assert_in_repo
+    file = File.stream!(Path.join(Gex.gex_path, "config"))
+    # We go over ever line, parsing out config sections and key/vals
+    {config, _} = Enum.reduce file, {%GexConfig{}, nil}, fn (line, {config, section}) ->
+      cond do
+                # matches [(sectionName)]
+        match = Regex.run(~r/\[([\d\w]+)\]/, line) ->
+                  {config, String.to_atom(List.last(match))}
+                # matches (prop)=(val)
+        match = Regex.run(~r/\s*(\w*)\s*=\s*([\w:\/.*+]*)/, line) ->
+                  [_, prop, val] = match
+                  props  = Map.get(config, section) ++ [{String.to_atom(prop), val}]
+                  config = Map.put config, section, props
+                  {config, section}
+        true  -> {config, section}
+      end
+    end
+    config
   end
 end
 
@@ -28,8 +52,8 @@ defmodule Gex do
     unless gex_path do
       unless opts[:bare], do: File.mkdir!(@gex_dir)
       if opts[:bare], do: File.write!("config", "[core]")
-      # A keyword list that gets converted into a set
-      # of directories and files needed to init a gex repo.
+      # A keyword list that gets converted into a set of
+      # directories and files needed to init a gex repo.
       gex_init_tree = [
         HEAD: "ref: refs/heads/master\n",
         config: GexConfig.to_string(%GexConfig{
@@ -44,6 +68,14 @@ defmodule Gex do
     else
       IO.puts "Already in a Gex repository."
     end
+  end
+
+  @doc "Add files matching `path` to the index."
+  def add(path) do
+    assert_in_repo
+    assert_repo_not_bare
+
+
   end
 
   # Takes a tree describing directories and files and
@@ -69,7 +101,7 @@ defmodule Gex do
   # or a file named 'config' that contains '[core]'
   # Returns the path if found
   # Returns nil if not found
-  defp gex_path(path \\ File.cwd!) do
+  def gex_path(path \\ File.cwd!) do
     gex_dir     = Path.join(path, @gex_dir)
     config_file = Path.join(path, "config")
     cond do
@@ -77,6 +109,22 @@ defmodule Gex do
       GexConfig.valid_file? config_file -> path
       path == @system_root -> nil
       true -> path |> Path.dirname |> gex_path
+    end
+  end
+
+  # Used to halt execution if not in a gex repo
+  def assert_in_repo do
+    case gex_path do
+      nil -> raise(RuntimeError, message: "Not in a gex repo.")
+      _   -> :ok
+    end
+  end
+
+  # Used to halt execution if trying to add files to a bare repo
+  def assert_repo_not_bare do
+    case GexConfig.load.core[:bare] do
+      true -> raise(RuntimeError, message: "You cannot add files to a bare repo.")
+      _    -> :ok
     end
   end
 
