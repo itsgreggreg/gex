@@ -23,7 +23,7 @@ defmodule GexConfig do
     Gex.assert_in_repo
     file = File.stream!(Path.join(Gex.gex_path, "config"))
     # We go over ever line, parsing out config sections and key/vals
-    {config, _} = Enum.reduce file, {%GexConfig{}, nil}, fn (line, {config, section}) ->
+     elem((Enum.reduce file, {%GexConfig{}, nil}, fn (line, {config, section}) ->
       cond do
                 # matches [(sectionName)]
         match = Regex.run(~r/\[([\d\w]+)\]/, line) ->
@@ -36,8 +36,7 @@ defmodule GexConfig do
                   {config, section}
         true  -> {config, section}
       end
-    end
-    config
+    end), 0) # Here we are returning the config we get back from reduce
   end
 end
 
@@ -144,21 +143,18 @@ defmodule Gex do
     Path.extname(path) in ~w|.git .gex|
   end
 
+  # ## Errors
   # Used to halt execution if not in a gex repo
-  def assert_in_repo do
-    case gex_path do
-      nil -> raise(RuntimeError, message: "Not in a gex repo.")
-      _   -> :ok
-    end
-  end
+  def assert_in_repo, do: raise_if(!gex_path, "Not in a gex repo.")
 
   # Used to halt execution if trying to add files to a bare repo
   def assert_repo_not_bare do
-    case GexConfig.load.core[:bare] do
-      true -> raise(RuntimeError, message: "You cannot add files to a bare repo.")
-      _    -> :ok
-    end
+    raise_if(!GexConfig.load.core[:bare], "Not possible in a bare repo.")
   end
+
+  # Raise a RuntimeError unless cond is true
+  defp raise_if(true, msg), do: raise msg
+  defp raise_if(false, _), do: :ok
 
 end
 
