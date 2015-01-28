@@ -70,12 +70,14 @@ defmodule Gex do
     end
   end
 
-  @doc "Add files matching `path` to the index."
-  def add(path) do
+  @doc "Add files matching eatch `path` to the index."
+  def add(paths) do
     assert_in_repo
     assert_repo_not_bare
-
-
+    files_to_add = List.flatten(Enum.map paths, fn(path) ->
+      files_at_path path
+    end)
+    files_to_add
   end
 
   # Takes a tree describing directories and files and
@@ -110,6 +112,36 @@ defmodule Gex do
       path == @system_root -> nil
       true -> path |> Path.dirname |> gex_path
     end
+  end
+
+  # Returns the path of the working directory
+  def working_directory_path do
+    Path.expand "../", gex_path
+  end
+
+  # Make sure we are only working with files that are
+  # relative to our working directory
+  defp files_at_path("~"<>_ = path), do: files_at_path Path.expand(path)
+  defp files_at_path("/"<>_ = path) do
+    case String.contains? path, working_directory_path do
+      true  -> files_at_path(Path.relative_to(path, working_directory_path))
+      false -> [] # no files to add at this path
+    end
+  end
+  defp files_at_path(path) do
+    cond do
+      ignore_path?(path)  -> []   # path ignored, no files to add
+      File.regular?(path) -> path # add the file
+      File.dir?(path)     ->      # recurse into dir
+        for p <- File.ls!(path), do: files_at_path(Path.join(path, p))
+      true -> [] # no files to add at this path
+    end
+  end
+
+  # Make sure a file doesn't match an ignore.
+  # Hardcoded for now
+  defp ignore_path?(path) do
+    Path.extname(path) in ~w|.git .gex|
   end
 
   # Used to halt execution if not in a gex repo
