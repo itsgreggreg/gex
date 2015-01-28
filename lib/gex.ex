@@ -10,7 +10,7 @@ defmodule GexConfig do
     end
   end
 
-  # Determines if a path is a valid repo file
+  # Determines if a path is a valid config file
   def valid_file?(path) do
     case File.read(path) do
       {:ok, contents} -> Regex.match?(~r/\[core\]/, contents)
