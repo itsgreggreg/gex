@@ -76,6 +76,7 @@ defmodule Gex do
     files_to_add = Enum.map(paths, &(files_at_path &1))
       |> List.flatten
       |> Enum.uniq
+      |> assert_files_found(paths)
   end
 
   # Takes a tree describing directories and files and
@@ -154,6 +155,12 @@ defmodule Gex do
   def assert_repo_not_bare do
     raise_if(!GexConfig.load.core[:bare], "Not possible in a bare repo.")
   end
+
+  # Used to halt if an action found no files
+  def assert_files_found([], paths) do
+    raise "pathspecs '#{Enum.join paths, " ,"}' did not match any files"
+  end
+  def assert_files_found(files, _), do: files
 
   # Raise a RuntimeError unless cond is true
   defp raise_if(true, msg), do: raise msg
