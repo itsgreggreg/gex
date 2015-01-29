@@ -92,9 +92,9 @@ defmodule Gex do
   # in the case it's a new file. That's it, that's all the index does.
   # Terminology:
   # A file that...
-  # is not in the index at all: New File
+  # is not in the index at all: New/Untracked
   # the same version as what's in the index: Committed/Unchanged
-  # a different version from what's in the index: Changed
+  # is a different version from what's in the index: Changed/Unstaged
   # is in the index but not reachable by any commit: Staged
   # in the index and reachable by a commit: Committed/Unchanged
 
