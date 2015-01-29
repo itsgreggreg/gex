@@ -1,23 +1,49 @@
 defmodule GexTest do
   use ExUnit.Case
 
-  test "the truth" do
-    assert 1 + 1 == 2
-  end
-
-  setup do
-    File.write! "_empty", ""
-    File.write! "_foobar", "foobar\n"
-    on_exit fn ->
-      File.rm! "_empty"
-      File.rm! "_foobar"
+  setup context do
+    if context[:fresh_repo] do
+      owd = File.cwd!
+      test_path  = Path.join(owd, "._test")
+      File.mkdir! test_path
+      File.cd! test_path
+      File.write! "_empty", ""
+      File.write! "_foobar", "foobar\n"
+      Gex.init
+      on_exit fn ->
+        File.cd! owd
+        File.rm_rf!("._test")
+      end
     end
   end
 
-  test "can calculate correct git hashes" do
-    assert Gex.hash_file("_empty") ==
-        "E69DE29BB2D1D6434B8B29AE775AD8C2E48C5391"
-    assert Gex.hash_file("_foobar") ==
-        "323FAE03F4606EA9991DF8BEFBB2FCA795E648FA"
+  @tag :fresh_repo
+  test "can init repo" do
+    assert File.exists?(".gex")
+    assert File.exists?(Path.join(".gex", "config"))
+  end
+
+  @tag :fresh_repo
+  test "can add files" do
+    Gex.add ["_empty"]
+    assert File.exists?(Path.join [".gex", "objects",
+        "e6", "9de29bb2d1d6434b8b29ae775ad8c2e48c5391"])
+    Gex.add ["_foobar"]
+    assert File.exists?(Path.join [".gex", "objects",
+        "32", "3fae03f4606ea9991df8befbb2fca795e648fa"])
+    index = File.stream! Path.join(".gex", "index")
+    assert Enum.count(index) == 2
+  end
+
+  @tag :fresh_repo
+  test "can add multiple files" do
+    Gex.add ~w|_foobar _empty|
+    index = File.stream! Path.join(".gex", "index")
+    assert Enum.count(index) == 2
+  end
+
+  @tag :fresh_repo
+  test "can load gex config" do
+    assert GexConfig.load[:core][:bare] == "false"
   end
 end
