@@ -32,7 +32,7 @@ defmodule Gex do
       |> List.flatten
       |> Enum.uniq
       |> assert_files_found(paths)
-      # |> add_files_to_index
+      |> add_files_to_index
   end
 
   # Takes a tree describing directories and files and
@@ -58,6 +58,27 @@ defmodule Gex do
           write_tree_to_gex_dir(tree, path)
       end
     end
+  end
+
+  defp add_files_to_index(files) do
+#     for file <- files do
+#       raw = File.read! file
+#       File.write! Path.join gex_path, "objects", hash(raw), raw
+#
+#       files.write(nodePath.join(files.gitletPath(), "objects", util.hash(str)), str);
+# return util.hash(str);
+#
+#       index.writeEntry(path, 0, files.read(files.workingCopyPath(path)));
+#     end
+  end
+
+  # Takes a file path and produces a git hash
+  def hash_file(file) do
+    contents = File.read! file
+    size = File.stat!(file).size
+    :crypto.hash(:sha, "blob #{size}\0#{contents}")
+      |> :crypto.bytes_to_integer
+      |> Integer.to_string(16)
   end
 
 
