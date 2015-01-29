@@ -1,15 +1,4 @@
 defmodule GexConfig do
-  defstruct core: []
-
-  # Dumps a GexConfig struct to a string
-  def to_string(conf) do
-    if core = conf.core do
-       "[core]\n" <> for {key, val} <- core, into: "" do
-         "  #{key} = #{val}\n"
-       end
-    end
-  end
-
   # Determines if a path is a valid config file
   def valid_file?(path) do
     case File.read(path) do
@@ -23,7 +12,7 @@ defmodule GexConfig do
     Gex.assert_in_repo
     file = File.stream!(Path.join(Gex.gex_dir, "config"))
     # We go over ever line, parsing out config sections and key/vals
-     (Enum.reduce file, {%GexConfig{}, nil}, fn (line, {config, section}) ->
+     (Enum.reduce file, {%{}, nil}, fn (line, {config, section}) ->
       cond do
                 # matches [(sectionName)]
         match = Regex.run(~r/\[([\d\w]+)\]/, line) ->
@@ -31,12 +20,38 @@ defmodule GexConfig do
                 # matches (prop)=(val)
         match = Regex.run(~r/\s*(\w*)\s*=\s*([\w:\/.*+]*)/, line) ->
                   [_, prop, val] = match
-                  props  = Map.get(config, section) ++ [{String.to_atom(prop), val}]
+                  props  = Map.get(config, section, []) ++
+                           [{String.to_atom(prop), val}]
                   config = Map.put config, section, props
                   {config, section}
-        true  -> {config, section}
+        true  -> {config, section} # skip, no match
       end
     end) |> elem(0) # Return the config we get back from reduce
+  end
+
+  # Sets and writes a value to the confige file
+  def set(node, [{prop, val}]) do
+    config = load
+    unless Map.has_key?(config, node), do: config = Map.put(config, node, [])
+    put_in(config[node][prop], val)|> dump
+  end
+
+  # Dumps a map to a config string
+  defp dump(conf) when is_map(conf) do
+      (for node <- Map.keys(conf) do
+        ["[#{node}]"] ++
+        (for {prop, val} <- conf[node] do
+          "  #{prop}=#{val}"
+        end)
+      end)
+      |> List.flatten
+      |> Enum.join("\n")
+      |> write
+  end
+
+  # Writes a string to the config file
+  defp write(conf) do
+    File.write!(Path.join(Gex.gex_dir, "config"), conf<>"\n")
   end
 end
 
@@ -45,24 +60,21 @@ defmodule Gex do
   @gex_dir ".gex"
   # system dependent root directory
   @system_root Path.join(["/"])
+  # initial contents of a gex repo
+  @gex_init_tree [
+      HEAD: "ref: refs/heads/master\n",
+      config: "",
+      objects: [],
+      refs: [
+        heads: [],
+      ]
+    ]
 
   @doc "Initializes an empty repository"
   def init(opts \\ []) do
     unless gex_dir do
-      unless opts[:bare], do: File.mkdir!(@gex_dir)
-      if opts[:bare], do: File.write!("config", "[core]")
-      # A keyword list that gets converted into a set of
-      # directories and files needed to init a gex repo.
-      gex_init_tree = [
-        HEAD: "ref: refs/heads/master\n",
-        config: GexConfig.to_string(%GexConfig{
-                   :core => [ bare: opts[:bare] == true ]}),
-        objects: [],
-        refs: [
-          heads: [],
-        ]
-      ]
-      write_tree_to_gex_dir(gex_init_tree)
+      write_tree_to_gex_dir @gex_init_tree, File.cwd!, opts[:bare]
+      GexConfig.set :core, bare: (opts[:bare] == true)
       IO.puts "Initialized empty Gex repository in #{gex_dir}"
     else
       IO.puts "Already in a Gex repository."
@@ -73,15 +85,23 @@ defmodule Gex do
   def add(paths) do
     assert_in_repo
     assert_repo_not_bare
-    files_to_add = Enum.map(paths, &(files_at_path &1))
+    Enum.map(paths, &(files_at_path &1))
       |> List.flatten
       |> Enum.uniq
       |> assert_files_found(paths)
+      # |> add_files_to_index
   end
 
   # Takes a tree describing directories and files and
   # writes those dirs and files to the gex dir.
-  defp write_tree_to_gex_dir(tree, path \\ gex_dir) do
+  defp write_tree_to_gex_dir(tree, path, true) do
+    write_tree_to_gex_dir(tree, path)
+  end
+  defp write_tree_to_gex_dir(tree, path, _) do
+    File.mkdir!(@gex_dir)
+    write_tree_to_gex_dir(tree, Path.join(path, @gex_dir))
+  end
+  defp write_tree_to_gex_dir(tree, path) do
     for key <- Keyword.keys(tree) do
       path = Path.join(path, Atom.to_string(key))
       case tree[key] do
