@@ -1,60 +1,3 @@
-defmodule GexConfig do
-  # Determines if a path is a valid config file
-  def valid_file?(path) do
-    case File.read(path) do
-      {:ok, contents} -> Regex.match?(~r/\[core\]/, contents)
-      {:error, _}     -> false
-    end
-  end
-
-  # Reads the config file in the gex directory and returns a GexConfig struct
-  def load do
-    Gex.assert_in_repo
-    file = File.stream!(Path.join(Gex.gex_dir, "config"))
-    # We go over ever line, parsing out config sections and key/vals
-     (Enum.reduce file, {%{}, nil}, fn (line, {config, section}) ->
-      cond do
-                # matches [(sectionName)]
-        match = Regex.run(~r/\[([\d\w]+)\]/, line) ->
-                  {config, String.to_atom(List.last(match))}
-                # matches (prop)=(val)
-        match = Regex.run(~r/\s*(\w*)\s*=\s*([\w:\/.*+]*)/, line) ->
-                  [_, prop, val] = match
-                  props  = Map.get(config, section, []) ++
-                           [{String.to_atom(prop), val}]
-                  config = Map.put config, section, props
-                  {config, section}
-        true  -> {config, section} # skip, no match
-      end
-    end) |> elem(0) # Return the config we get back from reduce
-  end
-
-  # Sets and writes a value to the confige file
-  def set(node, [{prop, val}]) do
-    config = load
-    unless Map.has_key?(config, node), do: config = Map.put(config, node, [])
-    put_in(config[node][prop], val)|> dump
-  end
-
-  # Dumps a map to a config string
-  defp dump(conf) when is_map(conf) do
-      (for node <- Map.keys(conf) do
-        ["[#{node}]"] ++
-        (for {prop, val} <- conf[node] do
-          "  #{prop}=#{val}"
-        end)
-      end)
-      |> List.flatten
-      |> Enum.join("\n")
-      |> write
-  end
-
-  # Writes a string to the config file
-  defp write(conf) do
-    File.write!(Path.join(Gex.gex_dir, "config"), conf<>"\n")
-  end
-end
-
 defmodule Gex do
   # folder to store repo information
   @gex_dir ".gex"
@@ -188,4 +131,60 @@ defmodule Gex do
 
 end
 
+defmodule GexConfig do
+  # Determines if a path is a valid config file
+  def valid_file?(path) do
+    case File.read(path) do
+      {:ok, contents} -> Regex.match?(~r/\[core\]/, contents)
+      {:error, _}     -> false
+    end
+  end
+
+  # Reads the config file in the gex directory and returns a GexConfig struct
+  def load do
+    Gex.assert_in_repo
+    file = File.stream!(Path.join(Gex.gex_dir, "config"))
+    # We go over ever line, parsing out config sections and key/vals
+     (Enum.reduce file, {%{}, nil}, fn (line, {config, section}) ->
+      cond do
+                # matches [(sectionName)]
+        match = Regex.run(~r/\[([\d\w]+)\]/, line) ->
+                  {config, String.to_atom(List.last(match))}
+                # matches (prop)=(val)
+        match = Regex.run(~r/\s*(\w*)\s*=\s*([\w:\/.*+]*)/, line) ->
+                  [_, prop, val] = match
+                  props  = Map.get(config, section, []) ++
+                           [{String.to_atom(prop), val}]
+                  config = Map.put config, section, props
+                  {config, section}
+        true  -> {config, section} # skip, no match
+      end
+    end) |> elem(0) # Return the config we get back from reduce
+  end
+
+  # Sets and writes a value to the confige file
+  def set(node, [{prop, val}]) do
+    config = load
+    unless Map.has_key?(config, node), do: config = Map.put(config, node, [])
+    put_in(config[node][prop], val)|> dump
+  end
+
+  # Dumps a map to a config string
+  defp dump(conf) when is_map(conf) do
+      (for node <- Map.keys(conf) do
+        ["[#{node}]"] ++
+        (for {prop, val} <- conf[node] do
+          "  #{prop}=#{val}"
+        end)
+      end)
+      |> List.flatten
+      |> Enum.join("\n")
+      |> write
+  end
+
+  # Writes a string to the config file
+  defp write(conf) do
+    File.write!(Path.join(Gex.gex_dir, "config"), conf<>"\n")
+  end
+end
 
