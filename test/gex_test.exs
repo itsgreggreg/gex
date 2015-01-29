@@ -9,6 +9,8 @@ defmodule GexTest do
       File.cd! test_path
       File.write! "_empty", ""
       File.write! "_foobar", "foobar\n"
+      File.mkdir_p "src"
+      File.write! Path.join("src", "test.exs"), "IO.puts(\"Elixir\")"
       Gex.init
       on_exit fn ->
         File.cd! owd
@@ -36,6 +38,16 @@ defmodule GexTest do
   end
 
   @tag :fresh_repo
+  test "can add files while in a sub directory" do
+    File.cd! "src"
+    Gex.add ~w|test.exs|
+    File.cd! "../"
+    IO.inspect File.read!(".gex/index")
+    index = File.stream! Path.join(".gex", "index")
+    assert Enum.count(index) == 1
+  end
+
+  @tag :fresh_repo
   test "can add multiple files" do
     Gex.add ~w|_foobar _empty|
     index = File.stream! Path.join(".gex", "index")
@@ -46,4 +58,5 @@ defmodule GexTest do
   test "can load gex config" do
     assert GexConfig.load[:core][:bare] == "false"
   end
+
 end

@@ -29,8 +29,9 @@ defmodule Gex do
     assert_in_repo
     assert_repo_not_bare
     Enum.map(paths, &(files_at_path &1))
-      |> List.flatten
+      |> Enum.sort
       |> Enum.uniq
+      |> Enum.drop_while(&(&1==[])) # remove empty entries
       |> assert_files_found(paths)
       |> add_files_to_index
   end
@@ -62,9 +63,10 @@ defmodule Gex do
 
   defp add_files_to_index(paths) do
     additions = for path <- paths do
-      contents = File.read! path
-      size     = File.stat!(path).size
-      hash     = hash_object(contents, size)
+      full_path = Path.join(working_dir, path)
+      contents  = File.read! full_path
+      size      = File.stat!(full_path).size
+      hash      = hash_object(contents, size)
       write_object(hash, contents)
       {String.to_atom("0"<>path), hash}
     end
@@ -161,23 +163,35 @@ defmodule Gex do
 
   # Make sure we are only working with files that are
   # relative to our working directory
-  defp files_at_path(""), do: files_at_path(".")
+  defp files_at_path(""),            do: files_at_path "."
+  defp files_at_path("."<>_ = path), do: files_at_path Path.expand(path)
   defp files_at_path("~"<>_ = path), do: files_at_path Path.expand(path)
-  defp files_at_path("/"<>_ = path) do
+  defp files_at_path("/"<>_ = path)  do
     case String.contains? path, working_dir do
       true  -> path
         |> String.replace(working_dir, "")
         |> Path.relative
-        |> files_at_path
+        |> do_files_at_path
       false -> [] # no files to add at this path
     end
   end
   defp files_at_path(path) do
+    File.cwd!
+      |> Path.join(path)
+      |> String.replace(working_dir, "")
+      |> Path.relative
+      |> do_files_at_path
+  end
+
+  # Assuming the path given is relative to working_dir, collect
+  # all files under it
+  defp do_files_at_path(path) do
+    full_path = Path.join(working_dir, path)
     cond do
-      ignore_path?(path)  -> []   # path ignored, no files to add
-      File.regular?(path) -> path # add the file
-      File.dir?(path)     ->      # recurse into dir
-        for p <- File.ls!(path), do: files_at_path(Path.join(path, p))
+      ignore_path?(path)       -> []   # path ignored, no files to add
+      File.regular?(full_path) -> path # add the file
+      File.dir?(full_path)     ->      # recurse into dir
+        for p <- File.ls!(full_path), do: do_files_at_path(Path.join(path, p))
       true -> [] # no files to add at this path
     end
   end
