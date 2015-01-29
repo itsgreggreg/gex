@@ -60,27 +60,84 @@ defmodule Gex do
     end
   end
 
-  defp add_files_to_index(files) do
-#     for file <- files do
-#       raw = File.read! file
-#       File.write! Path.join gex_path, "objects", hash(raw), raw
-#
-#       files.write(nodePath.join(files.gitletPath(), "objects", util.hash(str)), str);
-# return util.hash(str);
-#
-#       index.writeEntry(path, 0, files.read(files.workingCopyPath(path)));
-#     end
+  defp add_files_to_index(paths) do
+    additions = for path <- paths do
+      contents = File.read! path
+      size     = File.stat!(path).size
+      hash     = hash_object(contents, size)
+      write_object(hash, contents)
+      {String.to_atom("0"<>path), hash}
+    end
+    index = Keyword.merge read_index, additions
+    write_index index
   end
 
-  # Takes a file path and produces a git hash
-  def hash_file(file) do
-    contents = File.read! file
-    size = File.stat!(file).size
+  # Writes a blob to the objects folder
+  def write_object(hash, contents) do
+    {dir, name} = String.split_at hash, 2
+    path = Path.join [gex_dir, "objects", dir]
+    File.mkdir_p! path
+    File.write! Path.join(path,name), contents
+  end
+
+  ## The Index
+  # The index in Gex is a lightweight version of the index in Git.
+  # The index is the place where you mark files as changed.
+  # On a fresh checkout, with no changes or new files in your working
+  # directory the index will contain only references to the exact files
+  # in your working directory. When you make a change to a file or add
+  # a new file nothing immediately happens but once you `add` that file
+  # with `git add *file*` you create an `object` in the `object_store` and
+  # either update that file's entry in the index, or add a new entry
+  # in the case it's a new file. That's it, that's all the index does.
+  # Terminology:
+  # A file that...
+  # is not in the index at all: New File
+  # the same version as what's in the index: Committed/Unchanged
+  # a different version from what's in the index: Changed
+  # is in the index but not reachable by any commit: Staged
+  # in the index and reachable by a commit: Committed/Unchanged
+
+  ## Workings of the index
+  # Each line of the index represents a file version
+  # On disk the lines look like:
+  # (40bytes hash-of-contents)(1byte status)(variable-len path)
+  #  -> 8a418dc51f76644d4ac1ee88b011ab5f52ace83a0file1.txt
+  # In memory the index is represented as a key/value store with
+  # statuspath being the key and hash the value
+  #  -> {:"0file1.txt", "8a418dc51f76644d4ac1ee88b011ab5f52ace83a"}
+  # that way we can look up files by path quickly
+
+  # Reads the index file to memory
+  def read_index do
+    index_path = Path.join gex_dir, "index"
+    unless File.exists?(index_path), do: File.write(index_path, "")
+    index_file = File.stream!(index_path)
+    (for line <- index_file do
+      line = String.rstrip line, ?\n
+      case String.split_at(line, 40) do
+        {hash, id} -> {String.to_atom(id), hash}
+        _          -> [] # no match, ignore
+      end
+    end) |> List.flatten
+  end
+
+  # Takes an in memory representation of the index and
+  # writes it to disk.
+  def write_index(index) do
+    str = for {id, hash} <- index, into: "" do
+     "#{hash}#{id}\n"
+    end
+    File.write Path.join(gex_dir, "index"), str
+  end
+
+  # Produces a git-compatable object hash
+  def hash_object(contents, size) do
     :crypto.hash(:sha, "blob #{size}\0#{contents}")
       |> :crypto.bytes_to_integer
       |> Integer.to_string(16)
+      |> String.downcase
   end
-
 
   # Serches up the directory tree for a @gex_dir
   # or a file named 'config' that contains '[core]'
