@@ -9,7 +9,7 @@ defmodule Gex do
       config: "",
       objects: [],
       refs: [
-        heads: [],
+        heads: [ master: "" ],
       ]
     ]
 
@@ -26,14 +26,28 @@ defmodule Gex do
 
   @doc "Add files matching eatch `path` to the index."
   def add(paths) do
+    # TODO: conflicts
     assert_in_repo
     assert_repo_not_bare
     Enum.map(paths, &(files_at_path &1))
+      |> List.flatten
       |> Enum.sort
       |> Enum.uniq
-      |> Enum.drop_while(&(&1==[])) # remove empty entries
       |> assert_files_found(paths)
       |> add_files_to_index
+  end
+
+  @doc "Create a commit object from the index"
+  def commit do
+    #TODO conflicts
+    assert_in_repo
+    assert_repo_not_bare
+    parent_hash = Gex.Refs.hash_at_ref("HEAD")
+    read_index
+      |> write_trees_from_index      # returns hash of root tree
+      |> assert_something_to_commit
+      |> write_commit([parent_hash], "this is the commit message")
+      |> Gex.Refs.update_ref("HEAD")
   end
 
   # Takes a tree describing directories and files and
@@ -80,6 +94,7 @@ defmodule Gex do
     path = Path.join [gex_dir, "objects", dir]
     File.mkdir_p! path
     File.write! Path.join(path,name), contents
+    hash
   end
 
   ## The Index
@@ -133,6 +148,59 @@ defmodule Gex do
     File.write Path.join(gex_dir, "index"), str
   end
 
+  # Takes in in memory index returned by read_index
+  # and writes it and all it's sub trees to the object store
+  def write_trees_from_index(index) do
+    trees = Enum.reduce index, [], fn ({id, hash}, acc) ->
+      {mode, path} = String.split_at(Atom.to_string(id), 1)
+      path_parts = Path.split(path)++[hash]
+      merge_path_parts(acc, path_parts)
+    end
+    hash_trees(trees)
+  end
+
+  def hash_trees(tree) do
+    tree_object = for {key, val} <- tree, into: "" do
+      case key do
+        :"@@blobs" ->
+          for blob <- tree[:"@@blobs"], into: "" do
+            {hash, file_name} = String.split_at(blob, 40)
+            "blob #{hash} #{file_name}\n"
+          end
+        _tree      ->
+          "tree #{hash_trees(tree[key])} #{key}\n"
+      end
+    end
+    hash = hash_object(tree_object, String.length(tree_object))
+    write_object(hash, tree_object)
+  end
+
+  # Merges a list of path parts into a keyword list tree
+  # takes: [], ["one", "two", "three", *blobHash*]
+  # returns: [one: [two: ["@@blobs": "three/blobHash"]]]
+  def merge_path_parts(tree, [blob, hash]) do
+    Keyword.put tree, :"@@blobs",
+       (Keyword.get(tree, :"@@blobs", []) ++ [hash<>blob])
+  end
+  def merge_path_parts(tree, [part | rest]) do
+    part = String.to_atom(part)
+    sub  = Keyword.get(tree, part, [])
+    Keyword.put(tree, part, merge_path_parts(sub, rest))
+  end
+
+
+  def write_commit(hash, parents, message) do
+    file = "commit #{hash}\n" <> (for parent <- parents, into: "" do
+      "parent #{parent}\n"
+    end) <>
+    "date #{inspect :erlang.localtime}\n" <>
+    message <> "\n"
+
+    hash_object(file, String.length(file)) |> write_object(file)
+  end
+
+
+
   # Produces a git-compatable object hash
   def hash_object(contents, size) do
     :crypto.hash(:sha, "blob #{size}\0#{contents}")
@@ -161,7 +229,7 @@ defmodule Gex do
     Path.expand "../", gex_dir
   end
 
-  # Make sure we are only working with files that are
+  # Make sure we are only working with paths that are
   # relative to our working directory
   defp files_at_path(""),            do: files_at_path "."
   defp files_at_path("."<>_ = path), do: files_at_path Path.expand(path)
@@ -176,8 +244,7 @@ defmodule Gex do
     end
   end
   defp files_at_path(path) do
-    File.cwd!
-      |> Path.join(path)
+      Path.join(File.cwd!, path)
       |> String.replace(working_dir, "")
       |> Path.relative
       |> do_files_at_path
@@ -220,6 +287,17 @@ defmodule Gex do
   # Raise a RuntimeError unless cond is true
   defp raise_if(true, msg), do: raise msg
   defp raise_if(false, _), do: :ok
+
+  # Raise a runtime error if trying to commit the tree HEAD points to
+  def assert_something_to_commit(hash) do
+    IO.inspect hash
+    last_commit = Gex.Refs.hash_at_ref("HEAD")
+    #TODO read the root tree of a commit and compare to hash
+    case hash == Gex.Refs.hash_at_ref("HEAD") do
+      true  -> raise "Nothing to commit"
+      false -> hash
+    end
+  end
 
 end
 
@@ -280,3 +358,29 @@ defmodule GexConfig do
   end
 end
 
+defmodule Gex.Refs do
+  @moduledoc """
+  Module for handling refs
+  """
+
+  def hash_at_ref("HEAD") do
+    file = File.read!(Path.join(Gex.gex_dir, "HEAD"))
+    case String.starts_with? file, "ref:" do
+      false -> file
+      true  ->
+        [_, ref] = String.split file, " "
+        File.read!(Path.join(Gex.gex_dir, String.strip(ref)))
+    end
+  end
+
+  def update_ref(hash, "HEAD") do
+    file = File.read!(Path.join(Gex.gex_dir, "HEAD"))
+    case String.starts_with? file, "ref:" do
+      false -> File.write!(Path.join(Gex.gex_dir, "HEAD"), hash)
+      true  ->
+        [_, ref] = String.split file, " "
+        File.write!(Path.join(Gex.gex_dir, String.strip(ref)), hash)
+    end
+  end
+
+end
